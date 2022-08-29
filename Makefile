@@ -3,6 +3,19 @@
 POSTGRES_VERSION?=9.6
 MYSQL_VERSION?=5.7
 
+REPO_NAME := TaloflowGeneralLibraries
+ACCOUNT_ID := 257500476691
+DOMAIN := taloflow
+CODEARTIFACT_REPOSITORY_URL := $(shell aws codeartifact get-repository-endpoint --domain $(DOMAIN) --domain-owner $(ACCOUNT_ID) --repository $(REPO_NAME) --format pypi --query repositoryEndpoint --output text --profile=$(PROFILE))
+CODEARTIFACT_AUTH_TOKEN := $(shell aws codeartifact get-authorization-token --domain $(DOMAIN) --domain-owner $(ACCOUNT_ID) --query authorizationToken --output text --profile=$(PROFILE))
+CODEARTIFACT_USER=aws
+
+
+publish:
+	rm -rf dist/*
+	python -m build
+	python3 -m twine upload --repository-url $(CODEARTIFACT_REPOSITORY_URL) --username $(CODEARTIFACT_USER) --password $(CODEARTIFACT_AUTH_TOKEN) dist/* 
+
 
 rst-lint:
 	rst-lint README.rst

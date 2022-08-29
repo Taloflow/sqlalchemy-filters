@@ -2,6 +2,8 @@ from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm.mapper import Mapper
 from sqlalchemy.util import symbol
+from sqlalchemy.sql.annotation import AnnotatedTable, AnnotatedAlias
+from sqlalchemy.sql import visitors
 import types
 
 from .exceptions import BadQuery, FieldNotFound, BadSpec
@@ -61,7 +63,9 @@ def get_query_models(query):
         A dictionary with all the models included in the query.
     """
     models = [col_desc['entity'] for col_desc in query.column_descriptions]
-    models.extend(mapper.class_ for mapper in query._join_entities)
+    for node in visitors.iterate(query.statement, {}):
+        if isinstance(node, AnnotatedTable) or isinstance(node, AnnotatedAlias):
+            models.append(node.entity_namespace)
 
     # account also query.select_from entities
     if (
@@ -126,12 +130,13 @@ def get_model_from_spec(spec, query, default_model=None):
     return model
 
 
-def get_model_class_by_name(registry, name):
+def get_model_class_by_name(models_s, name):
     """ Return the model class matching `name` in the given `registry`.
     """
-    for cls in registry.values():
-        if getattr(cls, '__name__', None) == name:
-            return cls
+    for mdl in models_s:
+        if mdl.class_.__name__ == name:
+            return mdl.mapped_table
+    raise Exception(f"Class is None. |{name}|")
 
 
 def get_default_model(query):
@@ -149,16 +154,17 @@ def get_default_model(query):
 def auto_join(query, *model_names):
     """ Automatically join models to `query` if they're not already present
     and the join can be done implicitly.
-    """
+    
     # every model has access to the registry, so we can use any from the query
     query_models = get_query_models(query).values()
-    model_registry = list(query_models)[-1]._decl_class_registry
-
-    for name in model_names:
-        model = get_model_class_by_name(model_registry, name)
-        if model not in get_query_models(query).values():
-            try:
-                query = query.join(model)
-            except InvalidRequestError:
-                pass  # can't be autojoined
+    model_s = list(query_models)[-1].registry.mappers
+    if len(query_models) > 1:
+        for name in model_names:
+            model = get_model_class_by_name(model_s, name)
+            if model not in get_query_models(query).values():
+                try:
+                    query = query.join(model)
+                except InvalidRequestError:
+                    pass  # can't be autojoined
+    """
     return query
